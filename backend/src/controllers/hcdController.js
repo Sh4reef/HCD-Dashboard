@@ -1,4 +1,5 @@
 const db = require('../db');
+const sheetService = require('../services/sheetService');
 
 // Domain Calculations & Business Logic Implementations
 
@@ -126,7 +127,6 @@ exports.renewLicense = (req, res) => {
 
 // 4. Module 3: Employee Training Programs & 24h Deficit Queue
 exports.getUnderTrainedQueue = (req, res) => {
-  // Filter employees with < 24 learning hours and sort by deficit descending
   const queue = db.employees
     .filter(e => e.annualLearningHours < 24.0)
     .map(e => ({
@@ -160,7 +160,6 @@ exports.updateParticipantStatus = (req, res) => {
     participant.awardedHours = 0.0;
   }
 
-  // Recalculate employee annual cumulative learning hours
   const empParticipants = db.trainingParticipants.filter(tp => tp.nik === participant.nik && tp.status === 'CERTIFIED');
   const totalHours = empParticipants.reduce((sum, tp) => sum + tp.awardedHours, 0);
 
@@ -235,7 +234,6 @@ exports.getHaloHcTickets = (req, res) => {
 exports.getExecutiveAnalytics = (req, res) => {
   const now = new Date();
 
-  // 1. KPI Health Score
   const kpiRes = db.kpis.map(kpi => {
     const A = parseFloat(kpi.actualValue);
     const T = parseFloat(kpi.targetValue);
@@ -244,22 +242,19 @@ exports.getExecutiveAnalytics = (req, res) => {
   });
   const totalKpiScore = kpiRes.reduce((a, b) => a + b, 0);
 
-  // 2. Under-trained rate (< 24h)
   const totalStaff = db.employees.length;
   const underTrainedStaff = db.employees.filter(e => e.annualLearningHours < 24.0).length;
   const underTrainedRate = ((underTrainedStaff / totalStaff) * 100).toFixed(1);
 
-  // 3. License Expiration Alerts
   const criticalLicenses = db.licenses.filter(l => {
     const exp = new Date(l.expirationDate);
     const days = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
     return days <= 60;
   }).length;
 
-  // 4. Budget Realization
   const totalPlan = db.trainingBudgets.reduce((s, b) => s + b.planBudget, 0);
   const totalPayment = db.trainingBudgets.reduce((s, b) => s + b.realizationPayment, 0);
-  const budgetUtilization = ((totalPayment / totalPlan) * 100).toFixed(1);
+  const budgetUtilization = totalPlan > 0 ? ((totalPayment / totalPlan) * 100).toFixed(1) : '0.0';
 
   res.json({
     kpiHealthScore: parseFloat(totalKpiScore.toFixed(1)),
@@ -275,22 +270,41 @@ exports.getExecutiveAnalytics = (req, res) => {
   });
 };
 
-// 8. Google Sheets Sync Execution Trigger
-exports.triggerSheetSync = (req, res) => {
+// 8. Google Sheets Sync Execution Trigger with Live Parsing
+exports.triggerSheetSync = async (req, res) => {
   const startTime = Date.now();
 
-  // Simulate sync processing across 4 master sheets
-  const syncLog = {
-    id: `sync-${Date.now()}`,
-    spreadsheetName: 'All 4 Master Spreadsheets (Realisasi Anggaran, Internship, License, Training)',
-    status: 'SUCCESS',
-    recordsProcessed: 42,
-    triggeredBy: req.body.triggeredBy || 'HCD_SUPER_ADMIN',
-    durationMs: Date.now() - startTime + Math.floor(150 + Math.random() * 100),
-    createdAt: new Date().toISOString()
-  };
+  try {
+    const liveBudgets = await sheetService.syncBudgetSheet();
+    const liveInternships = await sheetService.syncInternshipSheet();
+    const liveLicenses = await sheetService.syncLicenseSheet();
+    const liveTrainingPrograms = await sheetService.syncTrainingSheet();
 
-  db.sheetSyncLogs.unshift(syncLog);
+    if (liveBudgets.length > 0) db.trainingBudgets = liveBudgets;
+    if (liveInternships.length > 0) db.internships = liveInternships;
+    if (liveLicenses.length > 0) db.licenses = liveLicenses;
+    if (liveTrainingPrograms.length > 0) db.trainingPrograms = liveTrainingPrograms;
 
-  res.json({ message: 'Google Spreadsheets synchronization completed successfully.', log: syncLog });
+    const totalProcessed = liveBudgets.length + liveInternships.length + liveLicenses.length + liveTrainingPrograms.length;
+
+    const syncLog = {
+      id: `sync-${Date.now()}`,
+      spreadsheetName: 'All 4 Master Spreadsheets (Realisasi Anggaran, Internship, License, Training)',
+      status: 'SUCCESS',
+      recordsProcessed: totalProcessed,
+      triggeredBy: req.body.triggeredBy || 'HCD_SUPER_ADMIN',
+      durationMs: Date.now() - startTime,
+      createdAt: new Date().toISOString()
+    };
+
+    db.sheetSyncLogs.unshift(syncLog);
+
+    res.json({
+      message: `Google Spreadsheets synchronized successfully from live Google Sheets links! Ingested ${totalProcessed} live records.`,
+      log: syncLog
+    });
+  } catch (err) {
+    console.error('Error syncing Google Sheets:', err);
+    res.status(500).json({ error: 'Failed to sync Google Spreadsheets', details: err.message });
+  }
 };
