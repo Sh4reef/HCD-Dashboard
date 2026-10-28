@@ -1,23 +1,19 @@
 {
-  "name": "app",
+  "name": "hcd-management-analytics-dashboard",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Human Capital Development Management & Analytics Dashboard",
+  "main": "backend/src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node backend/src/index.js",
+    "test": "node tests/full_stack_tests.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Sh4reef/HCD-Dashboard.git"
   },
-  "keywords": [],
+  "keywords": ["hcd", "hr", "analytics", "dashboard"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/Sh4reef/HCD-Dashboard/issues"
-  },
-  "homepage": "https://github.com/Sh4reef/HCD-Dashboard#readme",
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
